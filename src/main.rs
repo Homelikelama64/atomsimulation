@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use cgmath::{prelude::*, Vector2, Vector3};
 use eframe::{
     egui,
@@ -5,8 +7,7 @@ use eframe::{
     wgpu::{self},
     NativeOptions, Renderer,
 };
-use enum_map::enum_map;
-use physics::{update_particles, Element, Particle, Rectangle};
+use physics::{update_particles, Bond, Element, Particle, Rectangle};
 use rendering::{create_render_state, GpuCamera, GpuCircle, GpuRectangle, RenderCallback};
 
 mod physics;
@@ -29,6 +30,7 @@ struct App {
     time_scale: usize,
     camera: Camera,
     particles: Vec<Particle>,
+    bonds: HashMap<(usize, usize), Bond>,
     rectangles: Vec<Rectangle>,
 }
 
@@ -48,30 +50,20 @@ impl App {
                 Particle {
                     position: Vector2 { x: 3.0, y: 0.0 },
                     velocity: Vector2 { x: -1.0, y: 0.0 },
-                    base_element: Element::Oxygen,
-                    attached_elements: enum_map! {
-                        Element::Hydrogen => 1,
-                        _ => 0,
-                    },
+                    element: Element::Oxygen,
                 },
                 Particle {
                     position: Vector2 { x: -3.0, y: 0.0 },
-                    velocity: Vector2 { x: 30.0, y: 0.0 },
-                    base_element: Element::Oxygen,
-                    attached_elements: enum_map! {
-                        Element::Hydrogen => 1,
-                        _ => 0,
-                    },
+                    velocity: Vector2 { x: 0.0, y: 0.0 },
+                    element: Element::Hydrogen,
                 },
                 Particle {
-                    position: Vector2 { x: -6.0, y: 2.0 },
-                    velocity: Vector2 { x: 0.0, y: 0.0 },
-                    base_element: Element::Hydrogen,
-                    attached_elements: enum_map! {
-                        _ => 0,
-                    },
+                    position: Vector2 { x: -6.0, y: 0.5 },
+                    velocity: Vector2 { x: 30.0, y: 10.0 },
+                    element: Element::Hydrogen,
                 },
             ],
+            bonds: HashMap::from([((0, 1), Bond {}), ((0, 2), Bond {})]),
             rectangles: vec![
                 Rectangle {
                     position: Vector2 { x: -15.0, y: 0.0 },
@@ -123,7 +115,12 @@ impl eframe::App for App {
         self.last_frame_time = Some(time);
 
         for _ in 0..self.time_scale {
-            update_particles(&mut self.particles, &mut self.rectangles, dt);
+            update_particles(
+                &mut self.particles,
+                &mut self.bonds,
+                &mut self.rectangles,
+                dt,
+            );
         }
 
         egui::TopBottomPanel::top("Menu").show(ctx, |ui| {
@@ -137,11 +134,21 @@ impl eframe::App for App {
             .show(ctx, |ui| {
                 ui.label(format!("FPS: {:.3}", 1.0 / dt));
                 ui.label(format!("Frame Time: {:.3}ms", 1000.0 * dt));
-                let mut kinetic_energy = 0.0;
-                for particle in &self.particles {
-                    kinetic_energy += 0.5 * particle.mass() * particle.velocity.magnitude2();
-                }
-                ui.label(format!("Kinetic Energy: {:.3}", kinetic_energy));
+
+                // TODO: make this more accurate
+                // let mut energy = 0.0;
+                // for particle in &self.particles {
+                //     energy += 0.5 * particle.mass() * particle.velocity.magnitude2();
+                // }
+                // for bond in &self.bonds {
+                //     let distance = self.particles[bond.particle_a]
+                //         .position
+                //         .distance(self.particles[bond.particle_b].position)
+                //         - (self.particles[bond.particle_a].radius()
+                //             + self.particles[bond.particle_b].radius());
+                //     energy += 0.5 * bond.strength(&self.particles) * (distance * distance);
+                // }
+                // ui.label(format!("Energy: {:.3}", energy));
 
                 ui.horizontal(|ui| {
                     ui.label("Time Scale: ");
@@ -198,25 +205,13 @@ impl eframe::App for App {
                                 ));
                             });
                         });
-                        ui.collapsing("Elements", |ui| {
-                            ui.label(format!(
-                                "Base Element: {}",
-                                match self.particles[i].base_element {
-                                    Element::Hydrogen => "Hydrogen",
-                                    Element::Oxygen => "Oxygen",
-                                },
-                            ));
-                            for (element, &count) in &self.particles[i].attached_elements {
-                                ui.label(format!(
-                                    "Attached {} count: {}",
-                                    match element {
-                                        Element::Hydrogen => "hydrogen",
-                                        Element::Oxygen => "oxygen",
-                                    },
-                                    count,
-                                ));
-                            }
-                        });
+                        ui.label(format!(
+                            "Element: {}",
+                            match self.particles[i].element {
+                                Element::Hydrogen => "Hydrogen",
+                                Element::Oxygen => "Oxygen",
+                            },
+                        ));
                     }
                     Some(SelectedObject::Rectangle(i)) => {
                         ui.label("Rectangle:");

@@ -1,7 +1,8 @@
-use cgmath::{prelude::*, Vector2, Vector3};
-use enum_map::{Enum, EnumMap};
+use std::collections::HashMap;
 
-#[derive(Enum, Clone, Copy)]
+use cgmath::{prelude::*, Vector2, Vector3};
+
+#[derive(Clone, Copy)]
 pub enum Element {
     Hydrogen,
     Oxygen,
@@ -23,13 +24,6 @@ impl Element {
         }
     }
 
-    pub fn electrons_to_share(&self) -> usize {
-        match self {
-            Element::Hydrogen => 1,
-            Element::Oxygen => 2,
-        }
-    }
-
     pub fn mass(&self) -> f32 {
         match self {
             Self::Hydrogen => 1.0,
@@ -41,29 +35,12 @@ impl Element {
 pub struct Particle {
     pub position: Vector2<f32>,
     pub velocity: Vector2<f32>,
-    pub base_element: Element,
-    pub attached_elements: EnumMap<Element, u8>,
+    pub element: Element,
 }
 
 impl Particle {
     pub fn color(&self) -> Vector3<f32> {
-        let mut color = self.base_element.color();
-        let mut element_count = 1;
-        for (element, &count) in &self.attached_elements {
-            color += element.color() * count as f32;
-            element_count += count as usize;
-        }
-        color / element_count as f32
-    }
-
-    pub fn electrons_to_share(&self) -> usize {
-        let mut electrons = self.base_element.electrons_to_share();
-        for (element, &count) in &self.attached_elements {
-            let electrons_to_share = element.electrons_to_share();
-            assert!(electrons >= electrons_to_share * count as usize);
-            electrons -= electrons_to_share * count as usize;
-        }
-        electrons
+        self.element.color()
     }
 
     pub fn radius(&self) -> f32 {
@@ -71,12 +48,7 @@ impl Particle {
     }
 
     pub fn mass(&self) -> f32 {
-        self.base_element.mass()
-            + self
-                .attached_elements
-                .iter()
-                .map(|(element, &count)| element.mass() * count as f32)
-                .sum::<f32>()
+        self.element.mass()
     }
 }
 
@@ -86,14 +58,34 @@ pub struct Rectangle {
     pub size: Vector2<f32>,
 }
 
-pub fn update_particles(particles: &mut Vec<Particle>, rectangles: &mut [Rectangle], dt: f32) {
+pub struct Bond {}
+
+impl Bond {
+    pub const FORCE: f32 = 1.0;
+    pub const DISTANCE: f32 = 1.0;
+
+    pub fn strength(a: &Particle, b: &Particle) -> f32 {
+        match (b.element, a.element) {
+            (Element::Hydrogen, Element::Hydrogen) => 4.36,
+            (Element::Hydrogen, Element::Oxygen) => 4.59,
+            (Element::Oxygen, Element::Hydrogen) => 4.59,
+            (Element::Oxygen, Element::Oxygen) => 1.42, // TODO: what about double bonds????
+        }
+    }
+}
+
+pub fn update_particles(
+    particles: &mut Vec<Particle>,
+    bonds: &mut HashMap<(usize, usize), Bond>,
+    rectangles: &mut [Rectangle],
+    dt: f32,
+) {
     const MAX_ITERATIONS: usize = 100;
 
     let mut reached_max_iterations = true;
     for _ in 0..MAX_ITERATIONS {
         let mut was_collision = false;
 
-        let mut particles_to_delete = vec![];
         for i in 0..particles.len() {
             for j in i + 1..particles.len() {
                 let distance = particles[i].position.distance(particles[j].position);
@@ -101,63 +93,25 @@ pub fn update_particles(particles: &mut Vec<Particle>, rectangles: &mut [Rectang
                     let relvel = particles[i].velocity - particles[j].velocity;
                     let dir = (particles[i].position - particles[j].position) / distance;
                     if relvel.dot(dir) < 0.0 {
-                        let relative_kinetic_energy =
-                            (0.5 * particles[i].velocity * particles[i].mass()
-                                - 0.5 * particles[j].velocity * particles[j].mass())
-                            .magnitude2()
-                                * 2.0;
-                        let i_electrons_to_share = particles[i].electrons_to_share();
-                        let j_electrons_to_share = particles[j].electrons_to_share();
-                        if relative_kinetic_energy > 400.0
-                            && i_electrons_to_share != 0
-                            && j_electrons_to_share != 0
-                        {
-                            let baseelectronsi = particles[i].base_element.electrons_to_share();
-                            let baseelectronsj = particles[j].base_element.electrons_to_share();
-                            let ikenetic =
-                                0.5 * particles[i].mass() * particles[i].velocity.magnitude2();
-                            let jkenetic =
-                                0.5 * particles[j].mass() * particles[j].velocity.magnitude2();
-                            let final_vel = f32::sqrt(
-                                (ikenetic + jkenetic + 0.0)
-                                    / (particles[i].mass() + particles[j].mass())
-                                    * 2.0,
-                            );
-                            if baseelectronsi > baseelectronsj {
-                                let i_base = particles[i].base_element;
-                                let j_base = particles[j].base_element;
-                                particles[j].attached_elements[j_base] += 1;
-                                particles[j].base_element = i_base;
-                            } else if baseelectronsj >= baseelectronsi {
-                                let i_base = particles[i].base_element;
-                                particles[j].attached_elements[i_base] += 1;
-                            }
-                            for (element, count) in particles[i].attached_elements {
-                                particles[j].attached_elements[element] += count;
-                            }
-                            particles_to_delete.push(i);
-                            particles[j].velocity = particles[j].velocity.normalize() * final_vel;
-                        } else {
-                            was_collision = true;
+                        was_collision = true;
 
-                            let m1 = particles[i].mass();
-                            let m2 = particles[j].mass();
-                            let v1 = particles[i].velocity;
-                            let v2 = particles[j].velocity;
-                            let x1 = particles[i].position;
-                            let x2 = particles[j].position;
+                        let m1 = particles[i].mass();
+                        let m2 = particles[j].mass();
+                        let v1 = particles[i].velocity;
+                        let v2 = particles[j].velocity;
+                        let x1 = particles[i].position;
+                        let x2 = particles[j].position;
 
-                            // https://en.wikipedia.org/wiki/Elastic_collision#Two-dimensional_collision_with_two_moving_objects
-                            particles[i].velocity = v1
-                                - (x1 - x2)
-                                    * ((2.0 * m2) / (m1 + m2))
-                                    * ((v1 - v2).dot(x1 - x2) / (distance * distance));
+                        // https://en.wikipedia.org/wiki/Elastic_collision#Two-dimensional_collision_with_two_moving_objects
+                        particles[i].velocity = v1
+                            - (x1 - x2)
+                                * ((2.0 * m2) / (m1 + m2))
+                                * ((v1 - v2).dot(x1 - x2) / (distance * distance));
 
-                            particles[j].velocity = v2
-                                - (x2 - x1)
-                                    * ((2.0 * m1) / (m1 + m2))
-                                    * ((v2 - v1).dot(x2 - x1) / (distance * distance));
-                        }
+                        particles[j].velocity = v2
+                            - (x2 - x1)
+                                * ((2.0 * m1) / (m1 + m2))
+                                * ((v2 - v1).dot(x2 - x1) / (distance * distance));
                     }
                 }
             }
@@ -185,9 +139,6 @@ pub fn update_particles(particles: &mut Vec<Particle>, rectangles: &mut [Rectang
                 }
             }
         }
-        for particle_to_delete in particles_to_delete {
-            particles.remove(particle_to_delete);
-        }
 
         if !was_collision {
             reached_max_iterations = false;
@@ -197,6 +148,21 @@ pub fn update_particles(particles: &mut Vec<Particle>, rectangles: &mut [Rectang
     if reached_max_iterations {
         println!("WARNING: Max iterations reached, the simulation may be unstable");
     }
+
+    bonds.retain(|&(a, b), _bond| {
+        let distance = particles[a].position.distance(particles[b].position)
+            - (particles[a].radius() + particles[b].radius() + Bond::DISTANCE);
+        let a_to_b = particles[b].position - particles[a].position;
+        let force = Bond::FORCE * distance;
+        if force > Bond::strength(&particles[a], &particles[b]) {
+            return false;
+        }
+        let a_mass = particles[a].mass();
+        let b_mass = particles[b].mass();
+        particles[a].velocity += a_to_b * force * ((2.0 * b_mass) / (a_mass + b_mass)) * dt;
+        particles[b].velocity -= a_to_b * force * ((2.0 * a_mass) / (a_mass + b_mass)) * dt;
+        true
+    });
 
     for particle in particles {
         particle.position += particle.velocity * dt;

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+arrayvec = "0.7.4"
 cgmath = "0.18.0"
 eframe = { version = "0.23.0", features = ["wgpu"] }
 encase = { version = "0.6.1", features = ["cgmath"] }
