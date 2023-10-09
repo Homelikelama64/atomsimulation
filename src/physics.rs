@@ -62,7 +62,6 @@ pub struct Bond {}
 
 impl Bond {
     pub const FORCE: f32 = 1.0;
-    pub const DISTANCE: f32 = 1.0;
 
     pub fn strength(a: &Particle, b: &Particle) -> f32 {
         match (b.element, a.element) {
@@ -94,6 +93,48 @@ pub fn update_particles(
                     let dir = (particles[i].position - particles[j].position) / distance;
                     if relvel.dot(dir) < 0.0 {
                         was_collision = true;
+                        let relative_kinetic_energy =
+                            (0.5 * particles[i].velocity * particles[i].mass()
+                                - 0.5 * particles[j].velocity * particles[j].mass())
+                            .magnitude2()
+                                * 2.0;
+
+                        dbg!(relative_kinetic_energy);
+                        if dbg!(Bond::strength(&particles[i], &particles[j]))
+                            <= relative_kinetic_energy
+                            && !bonds.contains_key(&(i, j))
+                        {
+                            let a_energy =
+                                0.5 * particles[i].mass() * particles[i].velocity.magnitude2();
+                            let b_energy =
+                                0.5 * particles[j].mass() * particles[j].velocity.magnitude2();
+
+                            dbg!(a_energy);
+                            dbg!(b_energy);
+
+                            let finalvel = ((a_energy + b_energy
+                                - Bond::strength(&particles[i], &particles[j]))
+                                / (particles[i].mass() + particles[j].mass())
+                                * 2.0)
+                                .abs()
+                                .sqrt();
+
+                            dbg!(finalvel);
+
+                            particles[i].velocity = particles[i].velocity.normalize()
+                                * ((2.0 * particles[j].mass())
+                                    / (particles[i].mass() + particles[j].mass()))
+                                * finalvel;
+                            particles[j].velocity = particles[j].velocity.normalize()
+                                * ((2.0 * particles[i].mass())
+                                    / (particles[i].mass() + particles[j].mass()))
+                                * finalvel;
+
+                            dbg!(particles[i].velocity);
+                            dbg!(particles[j].velocity);
+
+                            bonds.insert((i, j), Bond {});
+                        }
 
                         let m1 = particles[i].mass();
                         let m2 = particles[j].mass();
@@ -151,10 +192,24 @@ pub fn update_particles(
 
     bonds.retain(|&(a, b), _bond| {
         let distance = particles[a].position.distance(particles[b].position)
-            - (particles[a].radius() + particles[b].radius() + Bond::DISTANCE);
+            - (particles[a].radius() + particles[b].radius()) * 1.5;
         let a_to_b = particles[b].position - particles[a].position;
         let force = Bond::FORCE * distance;
         if force > Bond::strength(&particles[a], &particles[b]) {
+            let a_energy = 0.5 * particles[a].mass() * particles[a].velocity.magnitude2();
+            let b_energy = 0.5 * particles[b].mass() * particles[b].velocity.magnitude2();
+
+            let finalvel = ((a_energy + b_energy + Bond::strength(&particles[a], &particles[b]))
+                / (particles[a].mass() + particles[b].mass())
+                * 2.0)
+                .sqrt();
+
+            particles[a].velocity = particles[a].velocity.normalize()
+                * ((2.0 * particles[b].mass()) / (particles[a].mass() + particles[b].mass()))
+                * finalvel;
+            particles[b].velocity = particles[b].velocity.normalize()
+                * ((2.0 * particles[a].mass()) / (particles[a].mass() + particles[b].mass()))
+                * finalvel;
             return false;
         }
         let a_mass = particles[a].mass();

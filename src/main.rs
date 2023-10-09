@@ -54,16 +54,16 @@ impl App {
                 },
                 Particle {
                     position: Vector2 { x: -3.0, y: 0.0 },
-                    velocity: Vector2 { x: 0.0, y: 0.0 },
+                    velocity: Vector2 { x: 0.1, y: 0.0 },
                     element: Element::Hydrogen,
                 },
                 Particle {
                     position: Vector2 { x: -6.0, y: 0.5 },
-                    velocity: Vector2 { x: 30.0, y: 10.0 },
+                    velocity: Vector2 { x: 40.0, y: 10.0 },
                     element: Element::Hydrogen,
                 },
             ],
-            bonds: HashMap::from([((0, 1), Bond {}), ((0, 2), Bond {})]),
+            bonds: HashMap::from([]),
             rectangles: vec![
                 Rectangle {
                     position: Vector2 { x: -15.0, y: 0.0 },
